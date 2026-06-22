@@ -1,25 +1,33 @@
 {
   "expo": {
-    "name": "hiring-centre-ledger",
+    "name": "Hiring Centre Ledger",
     "slug": "hiring-centre-ledger",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#2563EB",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "package": "com.hiringcentre.ledger",
+      "permissions": []
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "plugins": [
+      "expo-sqlite",
+      "expo-document-picker",
+      "expo-sharing"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d5f257f4-7035-4950-b8c3-22f0ba67dc46"
+      }
     }
   }
 }

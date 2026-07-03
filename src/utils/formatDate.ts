@@ -2,19 +2,15 @@
 // Date Formatting Utilities
 // ============================================================
 
-import { format, isToday, isYesterday, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 export function formatDisplayDate(dateStr: string): string {
   const date = new Date(dateStr);
-  if (isToday(date)) return 'Today';
-  if (isYesterday(date)) return 'Yesterday';
   return format(date, 'dd MMM yyyy');
 }
 
 export function formatDisplayDateShort(dateStr: string): string {
   const date = new Date(dateStr);
-  if (isToday(date)) return 'Today';
-  if (isYesterday(date)) return 'Yesterday';
   return format(date, 'dd MMM');
 }
 

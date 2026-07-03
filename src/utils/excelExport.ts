@@ -1,8 +1,8 @@
 // ============================================================
-// Excel Export Engine
+// Excel Export Engine (with full formatting via xlsx-js-style)
 // ============================================================
 
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import {
@@ -14,6 +14,102 @@ import {
 import { getFarmer } from '../database/farmers';
 import { APP_CONFIG } from '../constants/config';
 import { formatMonthYear } from './formatDate';
+
+// ── Shared style helpers ──────────────────────────────────────
+
+const BORDER_THIN = {
+  top: { style: 'thin' as const, color: { rgb: '000000' } },
+  bottom: { style: 'thin' as const, color: { rgb: '000000' } },
+  left: { style: 'thin' as const, color: { rgb: '000000' } },
+  right: { style: 'thin' as const, color: { rgb: '000000' } },
+};
+
+const CENTER: XLSX.CellStyle['alignment'] = {
+  horizontal: 'center',
+  vertical: 'center',
+  wrapText: true,
+};
+
+function titleStyle(sz = 16): XLSX.CellStyle {
+  return {
+    font: { bold: true, sz, name: 'Calibri' },
+    alignment: CENTER,
+  };
+}
+
+function headerStyle(): XLSX.CellStyle {
+  return {
+    font: { bold: true, sz: 12, name: 'Calibri', color: { rgb: 'FFFFFF' } },
+    alignment: CENTER,
+    fill: { fgColor: { rgb: '4472C4' } },
+    border: BORDER_THIN,
+  };
+}
+
+function sectionHeaderStyle(): XLSX.CellStyle {
+  return {
+    font: { bold: true, sz: 13, name: 'Calibri', color: { rgb: 'FFFFFF' } },
+    alignment: CENTER,
+    fill: { fgColor: { rgb: '2F5496' } },
+    border: BORDER_THIN,
+  };
+}
+
+function cellStyle(): XLSX.CellStyle {
+  return {
+    font: { sz: 11, name: 'Calibri' },
+    alignment: CENTER,
+    border: BORDER_THIN,
+  };
+}
+
+function totalRowStyle(): XLSX.CellStyle {
+  return {
+    font: { bold: true, sz: 12, name: 'Calibri' },
+    alignment: CENTER,
+    border: BORDER_THIN,
+    fill: { fgColor: { rgb: 'D9E2F3' } },
+  };
+}
+
+function subtitleStyle(sz = 12): XLSX.CellStyle {
+  return {
+    font: { bold: true, sz, name: 'Calibri' },
+    alignment: CENTER,
+  };
+}
+
+/** Apply a style to every cell in the sheet, with special styles for header rows */
+function applyStylesToSheet(
+  ws: XLSX.WorkSheet,
+  titleRows: number,
+  headerRow: number,
+  totalCols: number,
+  sectionHeaderRow?: number,
+  totalRowIndices?: number[],
+): void {
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C < totalCols; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+
+      if (R < titleRows) {
+        // Title / subtitle rows
+        ws[addr].s = titleStyle(R === 0 ? 16 : 12);
+      } else if (sectionHeaderRow !== undefined && R === sectionHeaderRow) {
+        ws[addr].s = sectionHeaderStyle();
+      } else if (R === headerRow) {
+        ws[addr].s = headerStyle();
+      } else if (totalRowIndices && totalRowIndices.includes(R)) {
+        ws[addr].s = totalRowStyle();
+      } else if (R >= titleRows) {
+        ws[addr].s = cellStyle();
+      }
+    }
+  }
+}
 
 async function saveAndShareWorkbook(
   wb: XLSX.WorkBook,
@@ -40,6 +136,8 @@ async function saveAndShareWorkbook(
     });
   }
 }
+
+// ── Export: Farmer Ledger ─────────────────────────────────────
 
 export async function exportFarmerLedger(
   farmerId: number,
@@ -109,11 +207,10 @@ export async function exportFarmerLedger(
     row.push(farmer.name); // NAME
 
     // Check if it's Section A or Section B
-    // A section A entry has description1. If both description1 and description2 are absent/empty, we default to Section A.
     const isSecB = item.description2 !== null && item.description2 !== '';
 
     if (!isSecB) {
-      // SECTION A (5 columns: BIGA, DESCRIPTION, KAIT KA NAME, RATE (PER BIGA), TOTAL)
+      // SECTION A
       row.push(item.quantity ?? ''); // BIGA
       row.push(item.work_type || ''); // DESCRIPTION
       row.push(item.khait_ka_naam || ''); // KAIT KA NAME
@@ -122,21 +219,21 @@ export async function exportFarmerLedger(
       totalA += item.debit;
       totalBigaA += item.quantity || 0;
 
-      // SECTION B (6 empty columns: DESCRIPTION, KAIT KA NAME, BIGA, TIME, RATE (PER BIGA/HOURS), TOTAL)
+      // SECTION B empty
       row.push('', '', '', '', '', '');
     } else {
-      // SECTION A is empty (5 empty columns: BIGA, DESCRIPTION, KAIT KA NAME, RATE (PER BIGA), TOTAL)
+      // SECTION A empty
       row.push('', '', '', '', '');
 
-      // SECTION B (6 columns: DESCRIPTION, KAIT KA NAME, BIGA, TIME, RATE (PER BIGA/HOURS), TOTAL)
+      // SECTION B
       row.push(item.work_type || ''); // DESCRIPTION
       row.push(item.khait_ka_naam || ''); // KAIT KA NAME
-      
+
       const unitLower = item.unit?.toLowerCase() || '';
       const isArea = unitLower.includes('biga') || unitLower.includes('bigha') || unitLower === 'acre';
       row.push(isArea ? (item.quantity ?? '') : ''); // BIGA
 
-      // Format TIME column as Xhour Y minutes if unit is Hours
+      // Format TIME column
       let timeVal = '';
       if (!isArea && item.quantity !== null && item.quantity !== undefined) {
         if (unitLower === 'hours') {
@@ -187,7 +284,8 @@ export async function exportFarmerLedger(
     }
   }
 
-  // Totals row (15 columns)
+  // Totals row
+  const totalsRowIdx = headerData.length + rows.length;
   rows.push([
     '', '', '', totalBigaA || '', '', '', 'Total-A', totalA,
     '', '', totalBigaB || '', formattedTotalTimeB, 'Total-B', totalB,
@@ -197,11 +295,13 @@ export async function exportFarmerLedger(
   // Spacer row
   rows.push([]);
 
-  // Deposit/Remaining Balance summary positioned at the bottom right under Section B Total / Grand Total columns
+  // Deposit/Remaining Balance summary
+  const depositRowIdx = headerData.length + rows.length;
   rows.push([
     '', '', '', '', '', '', '', '', '', '', '', '', '',
     'जमा (Deposits)', totalDeposits
   ]);
+  const balanceRowIdx = headerData.length + rows.length;
   rows.push([
     '', '', '', '', '', '', '', '', '', '', '', '', '',
     'बाकी (Balance Due)', (totalA + totalB) - totalDeposits
@@ -234,6 +334,33 @@ export async function exportFarmerLedger(
     { wch: 18 }, // Col O: GRAND TOTAL (A+B) (Summary)
   ];
 
+  // Merges for title rows (rows 0-4 merge across all 15 cols)
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 14 } }, // Title
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 14 } }, // Farmer name
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 14 } }, // Phone
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 14 } }, // Village
+    { s: { r: 4, c: 0 }, e: { r: 4, c: 14 } }, // Statement Date
+    // Section headers row 6
+    { s: { r: 6, c: 0 }, e: { r: 6, c: 7 } },  // Section A header
+    { s: { r: 6, c: 8 }, e: { r: 6, c: 13 } },  // Section B header
+  ];
+
+  // Apply formatting
+  applyStylesToSheet(ws, 5, 7, 15, 6, [totalsRowIdx, depositRowIdx, balanceRowIdx]);
+
+  // Row heights for title
+  ws['!rows'] = [
+    { hpt: 30 }, // Title row
+    { hpt: 22 }, // Farmer name
+    { hpt: 18 }, // Phone
+    { hpt: 18 }, // Village
+    { hpt: 18 }, // Statement Date
+    { hpt: 10 }, // Spacer
+    { hpt: 24 }, // Section headers
+    { hpt: 24 }, // Column headers
+  ];
+
   XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
 
   const timestamp = new Date().toISOString().split('T')[0];
@@ -243,6 +370,8 @@ export async function exportFarmerLedger(
   );
 }
 
+// ── Export: All Farmers Report ────────────────────────────────
+
 export async function exportAllFarmersReport(
   startDate?: string,
   endDate?: string
@@ -250,6 +379,7 @@ export async function exportAllFarmersReport(
   const data = await getAllFarmersReport(startDate, endDate);
 
   const wb = XLSX.utils.book_new();
+  const COLS = 9;
 
   const headerData = [
     [APP_CONFIG.appName],
@@ -274,16 +404,19 @@ export async function exportAllFarmersReport(
   const ws = XLSX.utils.aoa_to_sheet([...headerData, ...rows]);
 
   ws['!cols'] = [
-    { wch: 20 }, // Farmer
-    { wch: 15 }, // Village
-    { wch: 12 }, // Date
-    { wch: 15 }, // Type
-    { wch: 15 }, // Amount
-    { wch: 20 }, // Description 1
-    { wch: 20 }, // Description 2
-    { wch: 20 }, // Khait Ka Naam
-    { wch: 25 }, // Notes
+    { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
+    { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 25 },
   ];
+
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: COLS - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: COLS - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: COLS - 1 } },
+  ];
+
+  ws['!rows'] = [{ hpt: 28 }, { hpt: 22 }, { hpt: 18 }, { hpt: 10 }, { hpt: 24 }];
+
+  applyStylesToSheet(ws, 3, 4, COLS);
 
   XLSX.utils.book_append_sheet(wb, ws, 'All Farmers');
 
@@ -291,10 +424,13 @@ export async function exportAllFarmersReport(
   await saveAndShareWorkbook(wb, `All_Farmers_Report_${timestamp}.xlsx`);
 }
 
+// ── Export: Outstanding Report ────────────────────────────────
+
 export async function exportOutstandingReport(): Promise<void> {
   const data = await getOutstandingReport();
 
   const wb = XLSX.utils.book_new();
+  const COLS = 5;
 
   const headerData = [
     [APP_CONFIG.appName],
@@ -317,17 +453,24 @@ export async function exportOutstandingReport(): Promise<void> {
   const totalDeposits = data.reduce((sum, r) => sum + r.deposits_total, 0);
   const totalPending = data.reduce((sum, r) => sum + r.pending, 0);
   rows.push([]);
+  const totalRowIdx = headerData.length + rows.length;
   rows.push(['TOTAL', '', totalWork, totalDeposits, totalPending] as any);
 
   const ws = XLSX.utils.aoa_to_sheet([...headerData, ...rows]);
 
   ws['!cols'] = [
-    { wch: 20 },
-    { wch: 15 },
-    { wch: 15 },
-    { wch: 15 },
-    { wch: 15 },
+    { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
   ];
+
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: COLS - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: COLS - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: COLS - 1 } },
+  ];
+
+  ws['!rows'] = [{ hpt: 28 }, { hpt: 22 }, { hpt: 18 }, { hpt: 10 }, { hpt: 24 }];
+
+  applyStylesToSheet(ws, 3, 4, COLS, undefined, [totalRowIdx]);
 
   XLSX.utils.book_append_sheet(wb, ws, 'Outstanding');
 
@@ -335,10 +478,13 @@ export async function exportOutstandingReport(): Promise<void> {
   await saveAndShareWorkbook(wb, `Outstanding_Report_${timestamp}.xlsx`);
 }
 
+// ── Export: Monthly Summary ───────────────────────────────────
+
 export async function exportMonthlySummary(year?: number): Promise<void> {
   const data = await getMonthlySummary(year);
 
   const wb = XLSX.utils.book_new();
+  const COLS = 4;
 
   const headerData = [
     [APP_CONFIG.appName],
@@ -360,16 +506,24 @@ export async function exportMonthlySummary(year?: number): Promise<void> {
   const totalDeposits = data.reduce((sum, r) => sum + r.deposits, 0);
   const totalOutstanding = data.reduce((sum, r) => sum + r.outstanding, 0);
   rows.push([]);
+  const totalRowIdx = headerData.length + rows.length;
   rows.push(['TOTAL', totalWork, totalDeposits, totalOutstanding] as any);
 
   const ws = XLSX.utils.aoa_to_sheet([...headerData, ...rows]);
 
   ws['!cols'] = [
-    { wch: 15 },
-    { wch: 18 },
-    { wch: 15 },
-    { wch: 18 },
+    { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 18 },
   ];
+
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: COLS - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: COLS - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: COLS - 1 } },
+  ];
+
+  ws['!rows'] = [{ hpt: 28 }, { hpt: 22 }, { hpt: 18 }, { hpt: 10 }, { hpt: 24 }];
+
+  applyStylesToSheet(ws, 3, 4, COLS, undefined, [totalRowIdx]);
 
   XLSX.utils.book_append_sheet(wb, ws, 'Monthly Summary');
 
